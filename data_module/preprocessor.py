@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     特征工程：添加衍生特征
-    Input: 原始DataFrame（包含load_data的全部列）
+    Input: 原始DataFrame（包含load_data的全部列，列名已strip）
     Returns: 添加衍生列后的DataFrame
     """
     df = df.copy()
@@ -26,10 +26,10 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # ETH流动特征
     df['ether_flow'] = df['total ether received'] - df['total Ether sent']
-    df['max_received_ratio'] = df['max value received '] / (df['avg val received'] + eps)
+    df['max_received_ratio'] = df['max value received'] / (df['avg val received'] + eps)
     
-    # ERC20活跃度
-    df['erc20_activity'] = df[' Total ERC20 tnxs'] / (df['total transactions (including tnx to create contract'] + eps)
+    # ERC20活跃度（注意strip后列名没有前导空格）
+    df['erc20_activity'] = df['Total ERC20 tnxs'] / (df['total transactions (including tnx to create contract'] + eps)
     
     # 填充任何NaN（防止模型报错）
     df = df.fillna(0)

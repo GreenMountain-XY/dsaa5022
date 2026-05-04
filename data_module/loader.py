@@ -11,6 +11,8 @@ def load_data(path='data/ethereum_fraud.csv') -> pd.DataFrame:
     df = pd.read_csv(path)
     # 去除空列名或Unnamed列
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    # strip列名前后空格，统一格式
+    df.columns = df.columns.str.strip()
     return df
 
 
@@ -24,7 +26,7 @@ def get_feature_matrix(df: pd.DataFrame) -> pd.DataFrame:
     # 如果有 Index 列也去掉
     if 'Index' in df.columns:
         drop_cols.append('Index')
-    # 去掉空的 ERC20 token type 列（文本列）
+    # 去掉文本列（token类型）
     text_cols = ['ERC20 most sent token type', 'ERC20_most_rec_token_type']
     for col in text_cols:
         if col in df.columns:
