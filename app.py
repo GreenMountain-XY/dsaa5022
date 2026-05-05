@@ -10,10 +10,10 @@ from data_module.preprocessor import engineer_features, split_data
 from analysis.fraud_detector import FraudDetector
 from analysis.anomaly_detector import AnomalyDetector
 from analysis.cluster_analysis import ClusterAnalyzer
-from pages.overview_page import show_overview
-from pages.fraud_page import show_fraud_detection
-from pages.anomaly_page import show_anomaly_detection
-from pages.cluster_page import show_cluster_analysis
+from ui.overview_page import show_overview
+from ui.fraud_page import show_fraud_detection
+from ui.anomaly_page import show_anomaly_detection
+from ui.cluster_page import show_cluster_analysis
 
 st.set_page_config(
     page_title="以太坊交易行为分析",

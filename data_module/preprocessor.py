@@ -31,8 +31,9 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # ERC20活跃度（注意strip后列名没有前导空格）
     df['erc20_activity'] = df['Total ERC20 tnxs'] / (df['total transactions (including tnx to create contract'] + eps)
     
-    # 填充任何NaN（防止模型报错）
-    df = df.fillna(0)
+    # 填充任何NaN（防止模型报错），只对数值列填充，避免破坏字符串列
+    numeric_cols = df.select_dtypes(include='number').columns
+    df[numeric_cols] = df[numeric_cols].fillna(0)
     
     return df
 

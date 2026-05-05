@@ -10,12 +10,29 @@
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
+# 1. 克隆仓库
+git clone https://github.com/GreenMountain-XY/dsaa5022.git
+cd dsaa5022
 
-# 2. 启动应用
+# 2. 安装依赖（macOS Homebrew Python 用此命令）
+pip install -r requirements.txt --break-system-packages
+
+# 3. 启动应用
 streamlit run app.py
 ```
+
+浏览器打开 http://localhost:8501，左侧切换 4 个分析页面。
+
+---
+
+## 功能页面
+
+| 页面 | 内容 |
+|:---|:---|
+| 📊 数据概览 | 统计卡片、数据表格、基本分布 |
+| 🚨 欺诈检测 | Random Forest，准确率 96%，特征重要性、混淆矩阵 |
+| 🔍 异常检测 | Isolation Forest，检出异常地址 ~418 个，散点图排名 |
+| 🎯 聚类分析 | KMeans 4类，PCA 降维散点图，各类欺诈率统计 |
 
 ---
 
@@ -27,25 +44,21 @@ dsaa5022/
 ├── data/
 │   └── ethereum_fraud.csv      # 数据集（A提供）
 ├── data_module/                # 数据层（A实现）
-│   ├── __init__.py
 │   ├── loader.py               # 数据加载
-│   └── preprocessor.py         # 特征工程
-├── analysis/                   # AI分析层
-│   ├── __init__.py
-│   ├── fraud_detector.py       # A: 欺诈检测
-│   ├── anomaly_detector.py     # B: 异常检测
-│   └── cluster_analysis.py     # C: 聚类分析
-├── visualization/              # 可视化层
-│   ├── __init__.py
-│   ├── fraud_charts.py         # A: 欺诈可视化
-│   ├── anomaly_charts.py       # B: 异常可视化
-│   └── cluster_charts.py       # C: 聚类可视化
-├── pages/                      # Streamlit页面
-│   ├── __init__.py
-│   ├── overview_page.py        # C: 数据概览
-│   ├── fraud_page.py           # A: 欺诈检测页
-│   ├── anomaly_page.py         # B: 异常检测页
-│   └── cluster_page.py         # C: 聚类分析页
+│   └── preprocessor.py        # 特征工程
+├── analysis/                   # 分析层
+│   ├── fraud_detector.py       # A: Random Forest 欺诈检测
+│   ├── anomaly_detector.py     # B: Isolation Forest 异常检测
+│   └── cluster_analysis.py     # C: KMeans 聚类
+├── visualization/              # 可视化层（Plotly图表）
+│   ├── fraud_charts.py
+│   ├── anomaly_charts.py
+│   └── cluster_charts.py
+├── ui/                         # Streamlit 页面函数
+│   ├── overview_page.py
+│   ├── fraud_page.py
+│   ├── anomaly_page.py
+│   └── cluster_page.py
 ├── scripts/
 │   └── generate_mock_data.py   # 备用：模拟数据生成
 ├── requirements.txt

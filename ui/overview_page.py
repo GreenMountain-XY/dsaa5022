@@ -14,7 +14,11 @@ def show_overview(df):
     
     # 数据表格
     st.subheader("数据集样本")
-    st.dataframe(df.head(20))
+    display_df = df.copy()
+    for col in ['ERC20 most sent token type', 'ERC20_most_rec_token_type']:
+        if col in display_df.columns:
+            display_df[col] = display_df[col].astype(str)
+    st.dataframe(display_df.head(20))
     
     # 基本分布
     st.subheader("基本统计")

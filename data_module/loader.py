@@ -13,6 +13,10 @@ def load_data(path='data/ethereum_fraud.csv') -> pd.DataFrame:
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
     # strip列名前后空格，统一格式
     df.columns = df.columns.str.strip()
+    # 强制 token 类型列为字符串，避免 Arrow 序列化混合类型报错
+    for col in ['ERC20 most sent token type', 'ERC20_most_rec_token_type']:
+        if col in df.columns:
+            df[col] = df[col].astype(str)
     return df
 
 
