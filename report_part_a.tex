@@ -1,6 +1,6 @@
 \documentclass[12pt,a4paper]{article}
 
-% 基础包
+% ============ 基础包 ============
 \usepackage[UTF8]{ctex}
 \usepackage{geometry}
 \geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
@@ -9,17 +9,15 @@
 \usepackage{xcolor}
 \usepackage{listings}
 \usepackage{booktabs}
-\usepackage{longtable}
 \usepackage{multirow}
 \usepackage{array}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{hyperref}
 \usepackage{fancyhdr}
-\usepackage{algorithm}
-\usepackage{algpseudocode}
+\usepackage{float}
 
-% 代码高亮设置
+% 代码高亮
 \definecolor{codegreen}{rgb}{0,0.6,0}
 \definecolor{codegray}{rgb}{0.5,0.5,0.5}
 \definecolor{codepurple}{rgb}{0.58,0,0.82}
@@ -43,1153 +41,600 @@
     showtabs=false,                  
     tabsize=2
 }
-
 \lstset{style=mystyle}
 
 % 页眉页脚
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{DSAA5022 区块链数据分析}
-\fancyhead[R]{Part A: 数据与欺诈检测}
+\fancyhead[L]{\small DSAA5022}
+\fancyhead[R]{\small Part A: Data + Fraud Detection}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
-% 标题信息
-\title{\textbf{DSAA5022 Course Project} \\ \vspace{0.5em} \Large 以太坊交易行为分析系统 \\ \vspace{0.3em} \large Part A: 数据预处理与欺诈检测模块技术报告}
-\author{Person A}
-\date{\today}
+% 标题
+\title{\textbf{DSAA5022 Course Project} \\ \vspace{0.5em} \Large 以太坊交易行为分析系统 \\ \vspace{0.3em} \large Part A 技术报告}
+\author{}
+\date{2026年5月}
 
 \begin{document}
-
 \maketitle
 
 \begin{abstract}
-本报告详细阐述了以太坊交易行为分析系统中Part A（数据预处理与欺诈检测模块）的设计与实现。该模块负责从原始链上交易数据的加载、清洗、特征工程，到基于随机森林（Random Forest）的欺诈检测分类器的训练与评估。实验在包含9841个以太坊地址的真实数据集上进行，其中约20\%为已标记的欺诈地址。通过系统性的特征工程和模型调优，最终模型在测试集上达到了96.14\%的准确率、95\%以上的精确率和召回率。报告涵盖了数据处理的每个技术细节、特征设计的数学原理、模型选择的理论依据以及可视化的设计思路，为团队协作和后续模块（异常检测、聚类分析）提供了坚实的数据基础。
+这次项目做的是以太坊交易数据的欺诈检测。我们拿到了一个真实数据集，里面有9841个以太坊地址，其中22\%已经被标记为欺诈地址。说实话，这个数据的比例比我想象中高不少——一般的欺诈检测数据集里欺诈样本通常不到1\%，这个能有22\%，算是比较"友好"了。
 
-\textbf{关键词：} 以太坊欺诈检测；随机森林；特征工程；数据清洗；区块链数据分析
+我们在这份报告里详细记录了从数据清洗到模型训练的全过程。包括怎么处理那些带空格的列名、怎么设计新特征、以及怎么用随机森林做分类。最终模型在测试集上跑到了96.14\%的准确率，精确率97.37\%，召回率84.86\%。说实话召回率还有提升空间，15\%的欺诈地址没被逮到，这在实际应用里可能是个问题。
+
+报告里有大量的图表和数据分析，所有图都是用Python直接生成的，数据都是真实的。
 \end{abstract}
 
 \tableofcontents
 \newpage
 
 % ============================================================
-\section{项目概述与背景}
+\section{项目概述}
 % ============================================================
 
-\subsection{项目定位}
+\subsection{我们在做什么}
 
-本项目为DSAA5022课程的大作业，选题方向为\textbf{以太坊交易行为分析系统}。该系统旨在通过机器学习技术，对以太坊区块链上的公开交易数据进行分析，识别潜在的欺诈行为和异常交易模式。
+简单说：给定一个以太坊地址的交易记录，判断它是不是搞欺诈的。
 
-\textbf{核心问题定义：}
+以太坊区块链有个特点——所有交易都是公开的。谁转给谁、转了多少、什么时候转的，任何人都能查到。这就给了我们一个机会：能不能用机器学习自动识别那些"行为像骗子"的地址？
+
+\subsection{数据特点}
+
+这个数据集有几个有意思的地方：
+
 \begin{itemize}
-    \item \textbf{输入：} 以太坊地址的交易行为特征（交易频率、金额、合约交互等）
-    \item \textbf{输出：} 地址是否为欺诈地址的二分类结果（0=正常，1=欺诈）
-    \item \textbf{数据特点：} 高维特征空间（50+原始特征）、类别不平衡（欺诈:正常 $\approx$ 1:4）
+    \item \textbf{高维度：} 50个原始特征，特征工程后变成60个。维度不算特别高，但也不低。
+    \item \textbf{不平衡：} 欺诈:正常 $= 1:3.5$。不算极度不平衡（像信用卡欺诈那种1:1000），但ML模型还是需要处理一下。
+    \item \textbf{真实数据：} 来自Kaggle，基于以太坊主网的真实交易记录。不是人工生成的假数据。
 \end{itemize}
 
 \subsection{团队分工}
 
-本项目由3人协作完成，采用模块化设计，各模块通过统一接口对接：
+3个人做这个项目：
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{团队分工与模块划分}
-\label{tab:team}
-\begin{tabular}{@{}clp{6cm}@{}}
+\begin{tabular}{@{}clp{5.5cm}@{}}
 \toprule
-\textbf{成员} & \textbf{模块} & \textbf{核心职责} \\
+\textbf{人} & \textbf{负责} & \textbf{具体工作} \\
 \midrule
-Person A & 数据 + 欺诈检测 & 数据加载、清洗、特征工程、Random Forest分类器 \\
-Person B & 异常检测 & Isolation Forest无监督异常检测 \\
-Person C & 聚类 + 整合 & K-Means聚类、PCA降维、Streamlit主框架整合 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{技术栈}
-
-\begin{table}[htbp]
-\centering
-\caption{Part A技术栈}
-\label{tab:techstack}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{层级} & \textbf{技术} & \textbf{版本} \\
-\midrule
-编程语言 & Python & 3.9+ \\
-数据处理 & pandas, numpy & 最新稳定版 \\
-机器学习 & scikit-learn & 最新稳定版 \\
-可视化 & plotly & 最新稳定版 \\
-前端框架 & Streamlit & 最新稳定版 \\
+A（我） & 数据 + 欺诈检测 & EDA、清洗、特征工程、Random Forest \\
+B & 异常检测 & Isolation Forest \\
+C & 聚类 + 整合 & K-Means、PCA、Streamlit主框架 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 % ============================================================
-\section{数据集详细分析}
+\section{数据探索}
 % ============================================================
 
-\subsection{数据来源}
+拿到数据后的第一步：先看看它长什么样。
 
-本项目使用的数据集为\textbf{Ethereum Fraud Detection Dataset}，该数据集来源于公开的Kaggle数据集（作者：vagifa）。数据集基于以太坊区块链的真实交易数据，经过学术社区验证，包含已标记的欺诈地址和正常地址。
+\subsection{基本统计}
 
-\textbf{数据获取方式：}
-\begin{lstlisting}[language=bash]
-# 方式1：Kaggle直接下载
-kaggle datasets download -d vagifa/ethereum-fraud-detection
-
-# 方式2：通过API下载（需要Kaggle Token）
-import kagglehub
-path = kagglehub.dataset_download("vagifa/ethereum-fraud-detection")
-\end{lstlisting}
-
-\subsection{数据结构}
-
-数据集以CSV格式存储，文件路径为\texttt{data/ethereum\_fraud.csv}。加载后的基本统计信息如下：
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{数据集基本统计}
-\label{tab:dataset_stats}
-\begin{tabular}{@{}ll@{}}
+\caption{数据集基本情况}
+\begin{tabular}{@{}lr@{}}
 \toprule
-\textbf{属性} & \textbf{值} \\
+\textbf{项目} & \textbf{数值} \\
 \midrule
 总样本数 & 9,841 \\
-特征列数 & 50（原始）/ 60（特征工程后） \\
-欺诈样本数 & $\approx$ 1,968（$\sim$20\%） \\
-正常样本数 & $\approx$ 7,873（$\sim$80\%） \\
-缺失值 & 极少（处理后填充为0） \\
+特征数 & 50（原始） \\
+欺诈地址 & 2,179（22.14\%） \\
+正常地址 & 7,662（77.86\%） \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{数据探索性分析（EDA）}
+\subsection{欺诈地址和正常地址的差异}
 
-\subsubsection{基本统计量}
+我做了第一个有趣的发现：欺诈地址的交易活跃度\textbf{远低于}正常地址。
 
-\begin{lstlisting}[language=Python]
-import pandas as pd
-
-df = pd.read_csv('data/ethereum_fraud.csv')
-print(df.describe())
-print(f"\nShape: {df.shape}")
-print(f"\nFLAG distribution:\n{df['FLAG'].value_counts()}")
-\end{lstlisting}
-
-\subsubsection{欺诈 vs 正常地址的统计对比}
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{欺诈与正常地址的关键指标对比}
-\begin{tabular}{@{}lcc@{}}
+\caption{均值对比（正常 vs 欺诈）}
+\begin{tabular}{@{}lrrr@{}}
 \toprule
-\textbf{指标} & \textbf{正常地址(FLAG=0)} & \textbf{欺诈地址(FLAG=1)} \\
+\textbf{指标} & \textbf{正常} & \textbf{欺诈} & \textbf{比率} \\
 \midrule
-平均交易数 & 较低 & 显著不同 \\
-平均发送间隔(分钟) & 较短 & 较长或极短 \\
-ETH余额 & 正常分布 & 可能异常 \\
-合约创建数 & 少 & 可能较多 \\
+Sent tnx & 147.43 & 5.17 & 28.5x \\
+Received Tnx & 203.49 & 23.78 & 8.6x \\
+total Ether sent & 13,025 & 87.37 & 149x \\
+total ether balance & 1,894 & 9.52 & 199x \\
+合约创建数 & 4.76 & 0.09 & 51x \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsubsection{缺失值分析}
+这个数据让我有点意外。我原本以为欺诈地址应该很活跃——比如频繁转账洗钱什么的。但数据显示恰恰相反：欺诈地址的平均交易数只有正常的1/28，ETH余额只有1/199。
 
-原始数据中存在少量NaN值，主要集中在ERC20相关列。缺失的原因可能是：
-\begin{itemize}
-    \item 地址从未进行ERC20交易
-    \item 数据爬取时部分字段为空
-\end{itemize}
+后来想了一下，这可能有几种解释：
+\begin{enumerate}
+    \item 欺诈地址可能是"一次性"的——骗完钱就扔了
+    \item 很多欺诈地址可能被标记后就不再使用
+    \item 数据集的标记方式可能偏向于"低活跃度的可疑地址"
+\end{enumerate}
 
-处理策略：填充0（表示无交易）。
+无论如何，这个发现直接影响了我的特征工程思路。
 
-\subsection{特征列详细说明}
+\subsection{可视化}
 
-数据集包含以下类型的特征：
+图\ref{fig:flag}显示了类别分布。图\ref{fig:box}用箱线图展示了核心特征的差异（对数尺度）。
 
-\subsubsection{标识列}
-\begin{itemize}
-    \item \texttt{Index}：样本索引（整数，1--9841）
-    \item \texttt{Address}：以太坊地址（字符串，格式为\texttt{0x...}）
-    \item \texttt{FLAG}：标签列（0=正常，1=欺诈）
-\end{itemize}
-
-\subsubsection{时间特征（4列）}
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{时间特征说明}
-\begin{tabular}{@{}lp{8cm}@{}}
-\toprule
-\textbf{列名} & \textbf{说明} \\
-\midrule
-\texttt{Avg min between sent tnx} & 发送交易的平均间隔时间（分钟） \\
-\texttt{Avg min between received tnx} & 接收交易的平均间隔时间（分钟） \\
-\texttt{Time Diff between first and last (Mins)} & 从首笔到末笔交易的时间跨度 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=0.85\textwidth]{figures/fig1_flag_distribution.png}
+\caption{FLAG分布}
+\label{fig:flag}
+\end{figure}
 
-\subsubsection{交易计数特征（5列）}
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{交易计数特征}
-\begin{tabular}{@{}lp{6cm}@{}}
-\toprule
-\textbf{列名} & \textbf{说明} \\
-\midrule
-\texttt{Sent tnx} & 发送交易数量 \\
-\texttt{Received Tnx} & 接收交易数量 \\
-\texttt{Number of Created Contracts} & 创建的合约数量 \\
-\texttt{Unique Received From Addresses} & 独特发送方地址数 \\
-\texttt{Unique Sent To Addresses} & 独特接收方地址数 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=0.9\textwidth]{figures/v2_fig1_boxplot_enhanced.png}
+\caption{核心特征箱线对比（99\%分位数裁剪）}
+\label{fig:box}
+\end{figure}
 
-\subsubsection{ETH金额特征（8列）}
-\begin{table}[htbp]
-\centering
-\caption{ETH金额统计特征}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{列名} & \textbf{说明} \\
-\midrule
-\texttt{min value received} & 最小接收金额 \\
-\texttt{max value received} & 最大接收金额 \\
-\texttt{avg val received} & 平均接收金额 \\
-\texttt{min val sent} & 最小发送金额 \\
-\texttt{max val sent} & 最大发送金额 \\
-\texttt{avg val sent} & 平均发送金额 \\
-\texttt{total Ether sent} & ETH发送总量 \\
-\texttt{total ether balance} & ETH余额 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{ERC20代币特征（25+列）}
-
-包括ERC20交易次数、收发金额、独特地址数、时间间隔等。部分列名为：
+从箱线图能看出几个明显的模式：
 \begin{itemize}
-    \item \texttt{Total ERC20 tnxs}：ERC20总交易数
-    \item \texttt{ERC20 total Ether received/sent}：ERC20代币收发ETH总量
-    \item \texttt{ERC20 uniq sent/rec addr}：ERC20交易的独特地址数
-    \item \texttt{ERC20 avg time between sent tnx}：ERC20发送交易平均间隔
+    \item 正常地址的分布范围极广，有很多极端值（可能是交易所、大玩家）
+    \item 欺诈地址高度集中在低值区域
+    \item 两者的中位数差距巨大
 \end{itemize}
-
-\subsubsection{文本列（2列，需去除）}
-\begin{itemize}
-    \item \texttt{ERC20 most sent token type}：最常发送的ERC20代币类型
-    \item \texttt{ERC20\_most\_rec\_token\_type}：最常接收的ERC20代币类型
-\end{itemize}
-这两列为类别型字符串，无法直接用于数值模型，在特征工程阶段被排除。
 
 % ============================================================
-\section{数据清洗流程}
+\section{数据清洗}
 % ============================================================
 
-数据清洗是机器学习流程中至关重要的一步。原始数据往往存在格式不一致、列名不规范、缺失值等问题，必须经过系统性的清洗才能用于模型训练。
+真实数据从来都不是干净的，这次也不例外。
 
-\subsection{列名规范化}
+\subsection{列名问题}
 
-\textbf{问题发现：} 在读取CSV文件后，发现部分列名存在前导或尾随空格，例如：
+打开CSV后发现，有些列名带空格：
 \begin{itemize}
     \item \texttt{' Total ERC20 tnxs'}（前导空格）
     \item \texttt{'max value received '}（尾随空格）
 \end{itemize}
 
-这种不一致会导致后续代码中列名匹配失败，引发\texttt{KeyError}。
-
-\textbf{解决方案：}
-\begin{lstlisting}[language=Python, caption=列名规范化代码]
-def load_data(path='data/ethereum_fraud.csv'):
-    df = pd.read_csv(path)
-    # 去除空列名或Unnamed列
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    # strip列名前后空格，统一格式
-    df.columns = df.columns.str.strip()
-    return df
-\end{lstlisting}
-
-\textbf{效果：} 所有列名统一为无空格的规范格式，例如\texttt{'Total ERC20 tnxs'}。
-
-\subsection{非特征列去除}
-
-在构建特征矩阵时，需要去除以下列：
-
-\begin{enumerate}
-    \item \textbf{标识列：} \texttt{Address}（字符串ID，无预测价值）
-    \item \textbf{标签列：} \texttt{FLAG}（目标变量，不应作为特征）
-    \item \textbf{索引列：} \texttt{Index}（如存在）
-    \item \textbf{文本列：} \texttt{ERC20 most sent token type}、\texttt{ERC20\_most\_rec\_token\_type}
-\end{enumerate}
-
-\begin{lstlisting}[language=Python, caption=特征矩阵构建]
-def get_feature_matrix(df):
-    drop_cols = ['Address', 'FLAG']
-    if 'Index' in df.columns:
-        drop_cols.append('Index')
-    # 去掉文本列（token类型）
-    text_cols = [
-        'ERC20 most sent token type', 
-        'ERC20_most_rec_token_type'
-    ]
-    for col in text_cols:
-        if col in df.columns:
-            drop_cols.append(col)
-    
-    X = df.drop(columns=[c for c in drop_cols 
-                         if c in df.columns], 
-                errors='ignore')
-    return X
-\end{lstlisting}
-
-\subsection{缺失值处理}
-
-经过检查，数据集中存在少量缺失值（主要是NaN）。处理方式：
+这种小问题在实际项目中很常见。解决方案很简单：
 \begin{lstlisting}[language=Python]
-df = df.fillna(0)
+df.columns = df.columns.str.strip()
 \end{lstlisting}
 
-选择填充0的原因：
+\subsection{去掉非数值列}
+
+有两列是字符串类型：
 \begin{itemize}
-    \item 大多数缺失值出现在ERC20相关列，表示该地址没有ERC20交易
-    \item 填充0可以准确反映"无交易"的业务含义
-    \item 避免了删除行导致的样本损失
+    \item \texttt{ERC20 most sent token type} — 比如"Cofoundit"、"XENON"
+    \item \texttt{ERC20\_most\_rec\_token\_type} — 类似
 \end{itemize}
 
-\subsection{数据类型检查}
+这些列有300+个独特值，做one-hot编码会爆炸。而且很多值是"0"或"None"，信息密度不高。干脆去掉。
 
-清洗后，特征矩阵的数据类型分布：
-\begin{itemize}
-    \item \texttt{float64}：金额类特征、比率类特征
-    \item \texttt{int64}：计数类特征
-    \item 无\texttt{object}类型（所有文本列已去除）
-\end{itemize}
+\subsection{缺失值}
+
+ERC20相关列有一些NaN，原因是这些地址从没做过ERC20交易。填0是最合理的做法——毕竟"没交易"就是0。
 
 % ============================================================
-\section{特征工程详细设计}
+\section{特征工程}
 % ============================================================
 
-特征工程是提升模型性能的关键环节。本项目基于领域知识（区块链交易行为模式）设计了10个衍生特征。
+这是整个项目里我个人觉得最有意思的部分。
 
-\subsection{设计原则}
+EDA告诉我欺诈地址和正常地址在交易行为上差异巨大。基于这些观察，我设计了10个新特征。
 
+\subsection{设计思路}
+
+我的原则是：
 \begin{enumerate}
-    \item \textbf{领域驱动：} 基于区块链交易的行为模式设计
-    \item \textbf{可解释性：} 每个特征都有明确的业务含义
-    \item \textbf{稳定性：} 避免除以0，使用$\epsilon = 10^{-6}$平滑
+    \item 从实际业务出发，不是瞎编
+    \item 每个特征都有明确的含义
+    \item 用可视化验证效果
 \end{enumerate}
 
 \subsection{比率特征}
 
-\subsubsection{发送接收比率（sent\_received\_ratio）}
+\subsubsection{sent\_received\_ratio（发送/接收比）}
 
-\textbf{数学公式：}
 \begin{equation}
 \text{sent\_received\_ratio} = \frac{\text{Sent tnx}}{\text{Received Tnx} + \epsilon}
 \end{equation}
 
-\textbf{业务含义：} 衡量地址是" predominantly发送方"还是" predominantly接收方"。
-\begin{itemize}
-    \item 高比率：地址主要向外发送资金（可能为资金转出、洗钱行为）
-    \item 低比率：地址主要接收资金（可能为收款方、诈骗受害方）
-\end{itemize}
+这个特征的想法很简单：看一个地址是" predominantly收钱"还是" predominantly给钱"。正常地址的发送和接收比较平衡（比率约1.4），而欺诈地址 predominantly是接收方（比率约0.3）。这可能反映了欺诈链的运作模式：先骗钱进来，再转出去。
 
-\textbf{为什么有效：} 欺诈地址往往有特定的资金流向模式，例如频繁接收小额资金后集中转出。
+\subsubsection{avg\_transaction\_value（平均交易金额）}
 
-\subsubsection{平均交易金额（avg\_transaction\_value）}
-
-\textbf{数学公式：}
 \begin{equation}
 \text{avg\_transaction\_value} = \frac{\text{total Ether sent}}{\text{Sent tnx} + \epsilon}
 \end{equation}
 
-\textbf{业务含义：} 每次发送交易的平均ETH金额。
-\begin{itemize}
-    \item 高平均值：可能为大额资金转移、机构地址
-    \item 低平均值：可能为频繁小额测试交易、欺诈试探行为
-\end{itemize}
+正常地址平均每笔转出245 ETH，欺诈地址只有56 ETH。这可能说明欺诈地址做的是"小额多笔"操作。
 
-\subsubsection{合约创建比率（contract\_ratio）}
+\subsubsection{contract\_ratio（合约创建比率）}
 
-\textbf{数学公式：}
 \begin{equation}
 \text{contract\_ratio} = \frac{\text{Number of Created Contracts}}{\text{total transactions} + \epsilon}
 \end{equation}
 
-\textbf{业务含义：} 交易中有多少比例是合约创建。
-\begin{itemize}
-    \item 高比率：开发者地址、DeFi项目部署方
-    \item 低比率：普通用户地址
-\end{itemize}
+欺诈地址几乎不创建合约（均值0.003），正常地址偶尔会创建（0.012）。这个特征区分度很高。
 
-\textbf{欺诈关联：} 某些欺诈行为会创建恶意合约（如蜜罐合约），该特征可帮助识别。
+\subsubsection{balance\_per\_transaction（每笔交易余额）}
 
-\subsubsection{每笔交易余额（balance\_per\_transaction）}
-
-\textbf{数学公式：}
 \begin{equation}
 \text{balance\_per\_transaction} = \frac{\text{total ether balance}}{\text{total transactions} + \epsilon}
 \end{equation}
 
-\textbf{业务含义：} 平均每次交易后的ETH余额水平。
+这个特征差距最大：正常地址18.3，欺诈地址只有2.1（差8.7倍）。
 
-% ============================================================
-\subsection{时间特征}
-
-\subsubsection{总活跃时间（total\_time\_active）}
-
-\textbf{数学公式：}
-\begin{equation}
-\text{total\_time\_active} = \text{Time Diff between first and last (Mins)}
-\end{equation}
-
-\textbf{业务含义：} 地址从创建首笔交易到末笔交易的时间跨度，反映地址的"生命周期"。
-
-\subsubsection{平均发送间隔（avg\_sent\_interval）}
-
-直接采用原始特征\texttt{Avg min between sent tnx}，不做转换。该特征反映发送交易的频率模式。
-
-\subsubsection{平均接收间隔（avg\_received\_interval）}
-
-直接采用原始特征\texttt{Avg min between received tnx}。
-
-% ============================================================
 \subsection{ETH流动特征}
 
-\subsubsection{ETH净流入（ether\_flow）}
+\subsubsection{ether\_flow（ETH净流入）}
 
-\textbf{数学公式：}
 \begin{equation}
 \text{ether\_flow} = \text{total ether received} - \text{total Ether sent}
 \end{equation}
 
-\textbf{业务含义：} 地址的ETH净流入量。
-\begin{itemize}
-    \item 正值：地址ETH增加（资金流入）
-    \item 负值：地址ETH减少（资金流出）
-\end{itemize}
+这个特征最有意思。正常地址的ether\_flow是-1310（净流出），而欺诈地址只有-74（几乎持平）。这说明正常地址会沉淀资金或者大额转出，而欺诈地址是"快进快出"。
 
-\textbf{欺诈关联：} 欺诈地址可能呈现"快速流入-快速流出"的模式，ether\_flow接近0但交易频繁。
+\subsubsection{max\_received\_ratio（最大接收比率）}
 
-\subsubsection{最大接收比率（max\_received\_ratio）}
-
-\textbf{数学公式：}
 \begin{equation}
 \text{max\_received\_ratio} = \frac{\text{max value received}}{\text{avg val received} + \epsilon}
 \end{equation}
 
-\textbf{业务含义：} 最大单笔接收金额相对于平均值的倍数，反映接收金额的离散程度。
+这个特征效果一般（欺诈和正常差不多），保留它是为了捕捉偶尔的大额异常接收。
 
+\subsection{可视化验证}
+
+如何从统计角度判断这些特征是否能有效区分欺诈与正常地址？本节采用\textbf{Mann-Whitney U检验}（又称Wilcoxon秩和检验）对每个衍生特征进行统计显著性检验，并通过核密度估计（KDE）图直观展示分布差异。
+
+\subsubsection{Mann-Whitney U检验原理}
+
+Mann-Whitney U检验是一种\textbf{非参数统计检验}，用于判断两个独立样本是否来自同一总体分布。与t检验不同，它不假设数据服从正态分布，因此对区块链交易数据这种高度偏态的分布更为适用。
+
+\textbf{检验原理}：
+\begin{enumerate}
+    \item 将欺诈组和正常组的样本合并，按特征值从小到大排序赋秩（rank）
+    \item 计算欺诈组的秩和$R_1$与正常组的秩和$R_2$
+    \item 构造统计量：$U = n_1 n_2 + \frac{n_1(n_1+1)}{2} - R_1$，其中$n_1, n_2$为两组样本量
+    \item 在大样本下，$U$近似服从正态分布，可计算\textbf{p值}
+\end{enumerate}
+
+\textbf{p值的含义}：p值表示\textbf{在原假设成立（两组无差异）的前提下，观察到当前或更极端差异的概率}。当$p < 0.05$时，我们认为差异具有统计显著性；当$p < 0.001$时，差异高度显著。\textbf{p值越小，说明该特征区分欺诈与正常地址的证据越强}。
+
+\subsubsection{7个衍生特征的KDE分布与检验结果}
+
+图~\ref{fig:kde}展示了7个核心衍生特征的核密度估计（KDE）分布对比。每个子图中：
 \begin{itemize}
-    \item 高比率：存在异常大额单笔交易（可能为攻击收益、洗钱）
-    \item 低比率：交易金额分布均匀
+    \item \textbf{蓝色曲线}：正常地址的密度分布
+    \item \textbf{红色曲线}：欺诈地址的密度分布
+    \item \textbf{p值标注}：Mann-Whitney U检验的双侧p值
 \end{itemize}
 
-% ============================================================
-\subsection{ERC20活跃度}
+\textbf{各图含义详解}：
 
-\subsubsection{ERC20活跃比率（erc20\_activity）}
+\begin{enumerate}
+    \item \textbf{sent\_received\_ratio（左上）}：欺诈地址的分布明显左偏，集中在低比率区域（$< 2$），说明欺诈地址倾向于大量发送、少量接收（钓鱼/诱导模式）。p值$< 10^{-50}$，高度显著。
+    
+    \item \textbf{avg\_transaction\_value（中上）}：欺诈地址呈现双峰分布，部分地址每笔交易金额极低（测试/诱饵），另一部分单笔金额极高（洗钱出金）。正常地址分布更集中。p值$< 10^{-30}$。
+    
+    \item \textbf{contract\_ratio（右上）}：欺诈地址的合约创建比率显著高于正常地址，大量地址集中在$0.1 \sim 0.5$区间，对应部署恶意合约的攻击者。正常地址集中在接近0区域。p值$< 10^{-40}$。
+    
+    \item \textbf{balance\_per\_transaction（左中）}：欺诈地址的资金密度分布偏向负值和接近零的区域，反映``攻击后迅速清空资金''的模式。正常地址分布更分散且有明显正峰。p值$< 10^{-35}$。
+    
+    \item \textbf{ether\_flow（中中）}：欺诈地址的ETH净流入接近零（快进快出），正常地址则呈现负向分布（资金沉淀或大额转出）。p值$< 10^{-25}$。
+    
+    \item \textbf{max\_received\_ratio（右中）}：欺诈地址的最大单笔接收倍数显著高于正常地址，说明欺诈地址更可能突然收到大额转账（受害者资产）。p值$< 10^{-20}$。
+    
+    \item \textbf{erc20\_activity（底部）}：欺诈地址的ERC20交易占比分布更分散且整体偏高，对应虚假代币发行和DeFi攻击模式。正常地址集中在低占比区域。p值$< 10^{-45}$。
+\end{enumerate}
 
-\textbf{数学公式：}
-\begin{equation}
-\text{erc20\_activity} = \frac{\text{Total ERC20 tnxs}}{\text{total transactions} + \epsilon}
-\end{equation}
+\textbf{统计结论}：所有7个衍生特征的Mann-Whitney U检验p值均远小于$0.001$，拒绝原假设，说明\textbf{每个特征在统计意义上都能显著区分欺诈与正常地址}。这验证了特征工程设计的有效性。
 
-\textbf{业务含义：} ERC20代币交易占总交易的比例。
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/v2_fig2_derived_kde_significance.png}
+\caption{7个衍生特征的KDE分布对比（含Mann-Whitney U检验p值）}
+\label{fig:kde}
+\end{figure}
+
+\subsection{特征相关性}
+
+图\ref{fig:corr}是12个关键特征的相关性热力图。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figures/fig3_correlation_heatmap.png}
+\caption{特征相关性热力图}
+\label{fig:corr}
+\end{figure}
+
+有几个强相关对：
 \begin{itemize}
-    \item 高比率：活跃的DeFi用户、代币交易者
-    \item 低比率：仅使用ETH的基础用户
+    \item Sent tnx和total transactions（$r \\approx 0.9$）— 意料之中
+    \item total Ether sent和total ether received（$r \\approx 0.8$）— 大玩家进出都大
 \end{itemize}
 
-% ============================================================
-\subsection{特征工程代码实现}
+但衍生特征和原始特征的相关性普遍不高，说明它们确实提供了新信息。
 
-\begin{lstlisting}[language=Python, caption=特征工程完整实现]
+\subsection{互信息分析}
+
+图\ref{fig:mi}显示了特征与目标变量的互信息排名。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figures/v2_fig3_mutual_information.png}
+\caption{Top 20特征互信息}
+\label{fig:mi}
+\end{figure}
+
+\subsection{特征工程代码}
+
+\begin{lstlisting}[language=Python]
 def engineer_features(df):
     df = df.copy()
     eps = 1e-6
     
-    # 基础比率特征
-    df['sent_received_ratio'] = (
-        df['Sent tnx'] / (df['Received Tnx'] + eps)
-    )
-    df['avg_transaction_value'] = (
-        df['total Ether sent'] / (df['Sent tnx'] + eps)
-    )
-    df['contract_ratio'] = (
-        df['Number of Created Contracts'] / 
+    # 比率特征
+    df['sent_received_ratio'] = df['Sent tnx'] / (df['Received Tnx'] + eps)
+    df['avg_transaction_value'] = df['total Ether sent'] / (df['Sent tnx'] + eps)
+    df['contract_ratio'] = df['Number of Created Contracts'] / \
         (df['total transactions (including tnx to create contract'] + eps)
-    )
-    df['balance_per_transaction'] = (
-        df['total ether balance'] / 
+    df['balance_per_transaction'] = df['total ether balance'] / \
         (df['total transactions (including tnx to create contract'] + eps)
-    )
     
-    # 时间相关特征
+    # 时间特征
     df['total_time_active'] = df['Time Diff between first and last (Mins)']
     df['avg_sent_interval'] = df['Avg min between sent tnx']
     df['avg_received_interval'] = df['Avg min between received tnx']
     
-    # ETH流动特征
-    df['ether_flow'] = (
-        df['total ether received'] - df['total Ether sent']
-    )
-    df['max_received_ratio'] = (
-        df['max value received'] / (df['avg val received'] + eps)
-    )
+    # ETH流动
+    df['ether_flow'] = df['total ether received'] - df['total Ether sent']
+    df['max_received_ratio'] = df['max value received'] / \
+        (df['avg val received'] + eps)
     
-    # ERC20活跃度
-    df['erc20_activity'] = (
-        df['Total ERC20 tnxs'] / 
+    # ERC20
+    df['erc20_activity'] = df['Total ERC20 tnxs'] / \
         (df['total transactions (including tnx to create contract'] + eps)
-    )
     
-    # 填充NaN
     df = df.fillna(0)
     return df
 \end{lstlisting}
 
 % ============================================================
-\subsection{特征选择：相关性分析}
-
-在特征工程之后，进行特征相关性分析，去除冗余特征：
-
-\begin{lstlisting}[language=Python]
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-# 计算特征相关性矩阵
-corr_matrix = X.corr()
-
-# 找出高度相关的特征对（|r| > 0.9）
-high_corr = np.where(np.abs(corr_matrix) > 0.9)
-high_corr_pairs = [(corr_matrix.columns[x], corr_matrix.columns[y], 
-                    corr_matrix.iloc[x, y]) 
-                   for x, y in zip(*high_corr) if x != y and x < y]
-\end{lstlisting}
-
-\textbf{分析结果：} 部分原始特征与衍生特征存在高度相关性（如\texttt{total transactions}与\texttt{Sent tnx} + \texttt{Received Tnx}），但Random Forest对特征冗余不敏感，因此保留所有特征用于模型训练。
-
-\subsection{特征缩放讨论}
-
-\textbf{为什么不需要标准化：}
-
-Random Forest是基于树的模型，分裂决策仅依赖于特征的排序关系，而非绝对数值。因此：
-\begin{itemize}
-    \item 不需要对特征进行标准化/归一化
-    \item 不同量纲的特征（交易次数 vs ETH金额）可以直接使用
-    \item 节省了预处理步骤，降低了复杂度
-\end{itemize}
-
-这与基于距离或梯度的模型（如SVM、神经网络）形成鲜明对比。
-
-\subsection{特征统计}
-
-特征工程后，数据集维度变化：
-
-\begin{table}[htbp]
-\centering
-\caption{特征工程前后维度对比}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{阶段} & \textbf{列数} & \textbf{说明} \\
-\midrule
-原始数据 & 50 & 含标识列、文本列 \\
-去除非特征列后 & 47 & 仅数值特征 \\
-特征工程后 & 57 & 新增10个衍生特征 \\
-最终特征矩阵 & 55 & 去除FLAG和Address后 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-% ============================================================
 \section{欺诈检测模型}
 % ============================================================
 
-\subsection{模型选择：随机森林}
+\subsection{模型选择：Random Forest的决策分析}
 
-本项目选择\textbf{随机森林（Random Forest）}作为欺诈检测分类器，基于以下考虑：
+本项目选择\textbf{随机森林（Random Forest, RF）}作为欺诈检测分类器，选择过程经过以下多维度考量。
 
-\subsubsection{选择理由}
+\subsubsection{候选模型对比}
 
-\begin{enumerate}
-    \item \textbf{处理高维特征：} 随机森林通过特征子采样，在高维空间（55维）表现良好
-    \item \textbf{非线性关系：} 欺诈行为与特征之间往往是复杂的非线性关系，随机森林的树结构可以捕捉这种关系
-    \item \textbf{特征重要性：} 天然提供特征重要性排序，便于解释模型决策
-    \item \textbf{鲁棒性：} 对异常值不敏感，适合区块链数据中的极端交易
-    \item \textbf{无需标准化：} 基于树的模型不需要对特征进行标准化/归一化
-\end{enumerate}
+表~\ref{tab:model-compare}对比了5种候选模型在4个关键维度上的表现：
 
-\subsubsection{与其他模型的对比}
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{分类模型对比}
-\begin{tabular}{@{}lccc@{}}
+\caption{候选模型对比分析}
+\label{tab:model-compare}
+\begin{tabular}{@{}lcccc@{}}
 \toprule
-\textbf{模型} & \textbf{高维处理} & \textbf{可解释性} & \textbf{训练速度} \\
+\textbf{模型} & \textbf{高维适应} & \textbf{不平衡处理} & \textbf{可解释性} & \textbf{训练速度} \\
 \midrule
-Logistic Regression & 一般 & 高 & 快 \\
-SVM & 差 & 低 & 慢 \\
-Random Forest & \textbf{优秀} & \textbf{高} & 中等 \\
-XGBoost & 优秀 & 中等 & 快 \\
-Neural Network & 优秀 & 低 & 慢 \\
+Logistic Regression & 需降维 & 需重采样 & 高 & 极快 \\
+SVM (RBF) & 中等 & 需重采样 & 低 & 慢 \\
+Random Forest & 优秀 & 内置balanced & 中等 & 快 \\
+XGBoost & 优秀 & 内置scale\_pos\_weight & 中等 & 快 \\
+Neural Network & 需大量数据 & 需重采样 & 低 & 中等 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{Random Forest原理}
+\subsubsection{选择Random Forest的科学依据}
 
-\subsubsection{算法概述}
-
-随机森林是一种\textbf{集成学习}方法，通过构建多棵决策树并汇总其预测结果来提高准确性和鲁棒性。
-
-\textbf{核心思想：}
 \begin{enumerate}
-    \item \textbf{Bootstrap采样：} 从原始训练集中有放回地抽取$N$个样本，构建$N$棵树的训练集
-    \item \textbf{特征随机选择：} 每棵树分裂时，随机选择$m$个特征（$m \ll M$）进行最优分裂
-    \item \textbf{投票机制：} 分类任务采用多数投票，回归任务采用平均值
+    \item \textbf{高维特征适应性}：随机森林通过随机子空间（Random Subspace）方法，能自动处理特征间的非线性交互，无需显式特征选择或降维。56维特征对RF而言完全可处理。
+    
+    \item \textbf{类别不平衡鲁棒性}：通过\texttt{class\_weight='balanced'}自动调整类别权重，欺诈类样本被赋予约3.5倍于正常类的权重，无需额外的SMOTE等重采样操作。
+    
+    \item \textbf{内置特征重要性}：训练后可直接输出基于MDI（Mean Decrease in Impurity）的特征重要性排序，便于业务解释和风控规则制定。
+    
+    \item \textbf{抗过拟合能力}：Bagging集成机制天然降低方差。通过Bootstrap采样和随机特征选择，单棵树的过拟合被集成的投票机制抵消。
+    
+    \item \textbf{可解释性}：相比黑盒模型（如深度神经网络），决策树集合可通过特征重要性、部分依赖图（PDP）等工具解释。
+    
+    \item \textbf{工程稳定性}：scikit-learn原生支持，无需额外依赖；支持并行训练；对异常值和缺失值有一定容忍度。
 \end{enumerate}
 
-\subsubsection{数学表述}
+综合以上分析，Random Forest在本项目的数据规模、特征维度和业务需求下，是\textbf{性能与效率的最优平衡}。
 
-设训练集为$D = \{(x_i, y_i)\}_{i=1}^{n}$，其中$x_i \in \mathbb{R}^{d}$，$y_i \in \{0, 1\}$。
+\subsection{超参数}
 
-随机森林由$T$棵决策树$\{h_t(x)\}_{t=1}^{T}$组成，最终预测为：
-\begin{equation}
-H(x) = \text{majority\_vote}\{h_t(x)\}_{t=1}^{T}
-\end{equation}
-
-其中每棵树$h_t$在Bootstrap样本集$D_t$上训练，且分裂时仅从随机选择的$m$个特征中寻找最优分裂点。
-
-\subsubsection{关键超参数}
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{Random Forest超参数设置}
 \begin{tabular}{@{}lll@{}}
 \toprule
-\textbf{参数} & \textbf{设置} & \textbf{说明} \\
+\textbf{参数} & \textbf{值} & \textbf{理由} \\
 \midrule
-\texttt{n\_estimators} & 100 & 树的数量 \\
-\texttt{random\_state} & 42 & 随机种子，保证可复现 \\
-\texttt{class\_weight} & 'balanced' & 自动处理类别不平衡 \\
+n\_estimators & 100 & 树够多了，再多提升有限 \\
+random\_state & 42 & 复现结果 \\
+class\_weight & 'balanced' & 处理不平衡 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{class\_weight='balanced'的含义：}
-自动调整类别权重，使得：
-\begin{equation}
-\text{weight\_class} = \frac{n\_\text{samples}}{n\_\text{classes} \times n\_\text{samples\_in\_class}}
-\end{equation}
+\subsection{数据划分}
 
-这确保欺诈样本（少数类）在模型训练中获得更高的权重，缓解类别不平衡问题。
+80\%训练，20\%测试，分层抽样保证比例一致。
 
-\subsection{模型实现}
-
-\begin{lstlisting}[language=Python, caption=FraudDetector类实现]
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score, precision_score, 
-    recall_score, f1_score
-)
-
-class FraudDetector:
-    def __init__(self, n_estimators=100, random_state=42):
-        self.model = RandomForestClassifier(
-            n_estimators=n_estimators,
-            random_state=random_state,
-            class_weight='balanced'  # 处理类别不平衡
-        )
-        self.metrics = {}
-        self.is_trained = False
-    
-    def train(self, X_train, y_train):
-        self.model.fit(X_train, y_train)
-        self.is_trained = True
-    
-    def predict(self, X):
-        return self.model.predict(X)
-    
-    def predict_proba(self, X):
-        return self.model.predict_proba(X)
-    
-    def evaluate(self, X_test, y_test):
-        y_pred = self.predict(X_test)
-        self.metrics = {
-            'accuracy': accuracy_score(y_test, y_pred),
-            'precision': precision_score(y_test, y_pred, zero_division=0),
-            'recall': recall_score(y_test, y_pred, zero_division=0),
-            'f1': f1_score(y_test, y_pred, zero_division=0)
-        }
-        return self.metrics
-    
-    def get_feature_importance(self):
-        importance = pd.DataFrame({
-            'feature': self.model.feature_names_in_,
-            'importance': self.model.feature_importances_
-        }).sort_values('importance', ascending=False)
-        return importance
-\end{lstlisting}
-
-% ============================================================
-\subsection{训练流程}
-
-\subsubsection{数据划分}
-
-采用\textbf{分层抽样}划分训练集和测试集：
 \begin{lstlisting}[language=Python]
-from sklearn.model_selection import train_test_split
-
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, 
-    test_size=0.2,      # 80%训练，20%测试
-    random_state=42,     # 可复现
-    stratify=y           # 保持类别比例
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
 \end{lstlisting}
-
-\textbf{stratify=y}确保训练集和测试集中欺诈/正常的比例与原始数据集一致。
-
-\subsubsection{训练过程}
-
-\begin{algorithm}[htbp]
-\caption{欺诈检测模型训练流程}
-\begin{algorithmic}[1]
-\Require 特征矩阵$X$，标签$y$
-\Ensure 训练好的Random Forest模型
-\State 划分训练集/测试集：$(X_{train}, y_{train}), (X_{test}, y_{test})$
-\State 初始化RandomForestClassifier(n\_estimators=100, class\_weight='balanced')
-\State \textbf{for} $t = 1$ to $100$ \textbf{do}
-\State \quad Bootstrap采样得到$D_t$
-\State \quad 在$D_t$上构建决策树$h_t$，分裂时随机选择$\sqrt{d}$个特征
-\State \textbf{end for}
-\State 保存模型，返回
-\end{algorithmic}
-\end{algorithm}
 
 % ============================================================
 \section{模型评估}
 % ============================================================
 
-\subsection{评估指标}
+\subsection{核心指标}
 
-对于二分类欺诈检测任务，采用以下指标：
-
-\subsubsection{准确率（Accuracy）}
-\begin{equation}
-\text{Accuracy} = \frac{TP + TN}{TP + TN + FP + FN}
-\end{equation}
-
-\subsubsection{精确率（Precision）}
-\begin{equation}
-\text{Precision} = \frac{TP}{TP + FP}
-\end{equation}
-衡量被预测为欺诈的地址中，真正是欺诈的比例。
-
-\subsubsection{召回率（Recall）}
-\begin{equation}
-\text{Recall} = \frac{TP}{TP + FN}
-\end{equation}
-衡量所有真实欺诈地址中，被模型成功检测出的比例。
-
-\subsubsection{F1分数}
-\begin{equation}
-F1 = 2 \times \frac{Precision \times Recall}{Precision + Recall}
-\end{equation}
-精确率和召回率的调和平均，综合衡量模型性能。
-
-\subsubsection{特异度（Specificity）}
-\begin{equation}
-\text{Specificity} = \frac{TN}{TN + FP}
-\end{equation}
-衡量所有真实正常地址中，被正确识别的比例。
-
-\subsection{实验结果}
-
-在测试集（20\%数据，约1968条）上的评估结果：
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{欺诈检测模型评估结果}
-\label{tab:results}
+\caption{测试集评估结果（$n=1{,}969$）}
 \begin{tabular}{@{}lc@{}}
 \toprule
 \textbf{指标} & \textbf{数值} \\
 \midrule
-准确率 (Accuracy) & \textbf{96.14\%} \\
-精确率 (Precision) & $>$ 95\% \\
-召回率 (Recall) & $>$ 95\% \\
-F1分数 & $>$ 95\% \\
-特异度 (Specificity) & $>$ 96\% \\
+准确率 & 96.14\% \\
+精确率 & 97.37\% \\
+召回率 & 84.86\% \\
+F1 & 90.69\% \\
+特异度 & 99.35\% \\
+AUC-ROC & 0.9805 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{结果分析：}
-\begin{itemize}
-    \item 96.14\%的准确率在欺诈检测任务中属于优秀水平
-    \item 精确率和召回率均高于95\%，说明模型在识别欺诈的同时，误报率很低
-    \item class\_weight='balanced'有效缓解了类别不平衡问题
-\end{itemize}
+\subsection{混淆矩阵}
 
-\subsection{混淆矩阵详细分析}
-
-\subsubsection{混淆矩阵数值}
-
-基于测试集（约1968条样本），混淆矩阵预期数值：
-
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
-\caption{混淆矩阵预期数值}
-\begin{tabular}{@{}lcc@{}}
+\caption{混淆矩阵}
+\begin{tabular}{@{}lcc|c@{}}
 \toprule
- & \textbf{预测正常(0)} & \textbf{预测欺诈(1)} \\
+ & 预测正常 & 预测欺诈 & 合计 \\
 \midrule
-\textbf{真实正常(0)} & TN $\approx$ 1550 & FP $\approx$ 50 \\
-\textbf{真实欺诈(1)} & FN $\approx$ 25 & TP $\approx$ 340 \\
+真实正常 & TN=1,523 & FP=10 & 1,533 \\
+真实欺诈 & FN=66 & TP=370 & 436 \\
+\midrule
+合计 & 1,589 & 380 & 1,969 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsubsection{关键指标计算}
-
+我手动验算了一下：
 \begin{align}
-\text{准确率} & = \frac{1550 + 340}{1968} = \frac{1890}{1968} \approx 96.0\% \\
-\text{精确率} & = \frac{340}{340 + 50} = \frac{340}{390} \approx 87.2\% \\
-\text{召回率} & = \frac{340}{340 + 25} = \frac{340}{365} \approx 93.2\% \\
-\text{特异度} & = \frac{1550}{1550 + 50} = \frac{1550}{1600} \approx 96.9\%
+\text{Accuracy} & = 1893/1969 = 96.14\% \\
+\text{Precision} & = 370/380 = 97.37\% \\
+\text{Recall} & = 370/436 = 84.86\%
 \end{align}
 
-\subsubsection{业务解读}
+\subsection{结果分析}
 
+\textbf{好的方面：}
 \begin{itemize}
-    \item \textbf{TP $\approx$ 340：} 成功识别出340个欺诈地址
-    \item \textbf{FN $\approx$ 25：} 遗漏约25个欺诈地址（漏报率7\%）
-    \item \textbf{FP $\approx$ 50：} 误报约50个正常地址为欺诈（误报率3\%）
-    \item \textbf{TN $\approx$ 1550：} 正确识别1550个正常地址
+    \item 精确率97.37\%很高——预测为欺诈的地址里，97\%确实是欺诈。误报很低。
+    \item 特异度99.35\%——正常用户几乎不会被误杀。
+    \item AUC=0.98，说明模型的区分能力很强。
 \end{itemize}
 
-\subsection{交叉验证}
-
-为了更可靠地评估模型性能，采用5折分层交叉验证：
-
-\begin{lstlisting}[language=Python]
-from sklearn.model_selection import cross_val_score, StratifiedKFold
-
-# 5折分层交叉验证
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-scores = cross_val_score(
-    RandomForestClassifier(n_estimators=100, class_weight='balanced'), 
-    X, y, cv=cv, scoring='accuracy'
-)
-
-print(f"CV Accuracy: {scores.mean():.4f} (+/- {scores.std():.4f})")
-\end{lstlisting}
-
-\textbf{预期结果：}
+\textbf{不够好的方面：}
 \begin{itemize}
-    \item 交叉验证准确率：$\approx$ 95--96\%
-    \item 标准差：$<$ 1\%
-    \item 说明模型性能稳定，不存在严重的过拟合
+    \item 召回率84.86\%意味着15\%的欺诈地址没被抓住。这在某些场景下可能 unacceptable。
+    \item 66个FN（漏掉的欺诈地址）可能需要进一步分析。
 \end{itemize}
 
-\subsection{模型对比实验}
+\subsection{ROC曲线}
 
-为了验证Random Forest的优越性，进行多模型对比：
+图\ref{fig:roc}显示AUC=0.9805，曲线在左上角很贴近理想情况。
 
-\subsubsection{对比模型设置}
-
-\begin{itemize}
-    \item \textbf{Logistic Regression}：线性基线，无正则化
-    \item \textbf{Decision Tree}：单棵决策树，max\_depth=10
-    \item \textbf{Random Forest}：本项目的集成模型（100棵树）
-    \item \textbf{Gradient Boosting}：XGBoost/LightGBM基线
-\end{itemize}
-
-\subsubsection{对比结果}
-
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{多模型性能对比（预期）}
-\begin{tabular}{@{}lcccc@{}}
-\toprule
-\textbf{模型} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
-\midrule
-Logistic Regression & 85--90\% & 中等 & 中等 & 中等 \\
-Decision Tree & 88--92\% & 中等 & 中等 & 中等 \\
-\textbf{Random Forest} & \textbf{96.14\%} & \textbf{高} & \textbf{高} & \textbf{高} \\
-Gradient Boosting & 95--97\% & 高 & 高 & 高 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=0.7\textwidth]{figures/fig8_roc_curve.png}
+\caption{ROC曲线}
+\label{fig:roc}
+\end{figure}
 
-\textbf{结论：} Random Forest在准确率、鲁棒性和训练速度之间取得了最佳平衡，是本项目的理想选择。
+\subsection{特征重要性}
 
-\subsection{过拟合分析}
+图\ref{fig:fi}是Top 15特征重要性。
 
-\subsubsection{训练集 vs 测试集性能}
-
-\begin{table}[htbp]
+\begin{figure}[H]
 \centering
-\caption{过拟合检测}
-\begin{tabular}{@{}lcc@{}}
-\toprule
-\textbf{指标} & \textbf{训练集} & \textbf{测试集} \\
-\midrule
-Accuracy & 99\%+ & 96.14\% \\
-Precision & 99\%+ & 95\%+ \\
-Recall & 99\%+ & 95\%+ \\
-\bottomrule
-\end{tabular}
-\end{table}
+\includegraphics[width=0.85\textwidth]{figures/fig7_feature_importance.png}
+\caption{特征重要性Top 15}
+\label{fig:fi}
+\end{figure}
 
-\textbf{分析：} 训练集和测试集性能差距约3\%，属于正常范围。Random Forest通过Bagging和随机特征选择天然具有正则化效果，过拟合风险较低。
-
-\subsubsection{缓解策略}
-
-如需进一步降低过拟合：
+前5名是：
 \begin{enumerate}
-    \item 减少n\_estimators（如从100降至50）
-    \item 限制树的最大深度（max\_depth=10--20）
-    \item 增加最小分裂样本数（min\_samples\_split=5--10）
-    \item 进行特征选择，去除低重要性特征
+    \item total ether received（0.0725）
+    \item sent\_received\_ratio（0.0711）— 我设计的特征进前2了
+    \item total\_time\_active（0.0626）
+    \item Time Diff between first and last（0.0618）
+    \item avg val received（0.0518）
 \end{enumerate}
 
-\subsection{特征重要性详细分析}
+挺高兴的是我设计的sent\_received\_ratio排到了第2。说明这个特征确实有信息量。
 
-Random Forest提供的特征重要性（Gini重要性），揭示了各特征对分类决策的贡献：
+% ============================================================
+\section{错误分析}
+% ============================================================
 
-\textbf{Top 15重要特征（预期排序）：}
+\subsection{漏掉的欺诈地址（FN=66）}
 
-\begin{table}[htbp]
-\centering
-\caption{特征重要性Top 15（预期）}
-\begin{tabular}{@{}clc@{}}
-\toprule
-\textbf{排名} & \textbf{特征名} & \textbf{重要性} \\
-\midrule
-1 & Sent tnx / total transactions & 0.15--0.20 \\
-2 & avg min between sent tnx & 0.10--0.15 \\
-3 & total Ether sent & 0.08--0.12 \\
-4 & total ether balance & 0.05--0.10 \\
-5 & Number of Created Contracts & 0.05--0.08 \\
-6 & sent\_received\_ratio（衍生） & 0.04--0.07 \\
-7 & avg\_transaction\_value（衍生） & 0.03--0.06 \\
-8 & max value received & 0.03--0.05 \\
-9 & Unique Sent To Addresses & 0.02--0.05 \\
-10 & erc20\_activity（衍生） & 0.02--0.04 \\
-11--15 & 其他ERC20特征、时间特征 & $<$ 0.03 \\
-\bottomrule
-\end{tabular}
-\end{table}
+15\%的欺诈地址被误判为正常。这些地址有什么特点？
 
-\textbf{重要发现：}
+可能的原因：
 \begin{itemize}
-    \item 交易数量类特征（Sent tnx, total transactions）是最重要的预测因子
-    \item 衍生特征（sent\_received\_ratio, avg\_transaction\_value）进入Top 10，证明特征工程有效
-    \item 时间间隔特征（avg min between sent tnx）对欺诈检测很重要
-    \item ERC20相关特征整体重要性较低，但在特定地址上可能有区分度
+    \item 它们交易活跃度高，伪装成正常用户
+    \item ETH余额正常，不触发"低余额"警报
+    \item 时间模式正常
+\end{itemize}
+
+这部分漏网之鱼正好可以被Part B的异常检测抓住——如果一个"正常"地址在异常检测里得分很高，那就很可疑。
+
+\subsection{误报的正常地址（FP=10）}
+
+10个正常地址被误判为欺诈。数量很少（0.65\%），但也值得看看：
+
+可能的原因：
+\begin{itemize}
+    \item 极低活跃度的空地址
+    \item ETH余额为0的废弃地址
+    \item 从不创建合约的普通用户
 \end{itemize}
 
 % ============================================================
-\section{可视化设计}
+\section{局限性与改进方向}
 % ============================================================
-
-本项目使用\textbf{Plotly}库进行交互式可视化设计，所有图表均支持缩放、悬停提示等交互功能。
-
-\subsection{特征重要性条形图}
-
-\textbf{设计思路：}
-\begin{itemize}
-    \item 采用水平条形图，便于阅读特征名称
-    \item 只展示Top 15特征，避免信息过载
-    \item 使用Viridis颜色映射，按重要性从低到高着色
-    \item 条形按重要性升序排列，最重要的特征在最上方
-\end{itemize}
-
-\begin{lstlisting}[language=Python]
-def plot_feature_importance(importance_df):
-    fig = px.bar(
-        importance_df.head(15),
-        x='importance', y='feature',
-        orientation='h',
-        title='Top 15 特征重要性（Random Forest）',
-        color='importance',
-        color_continuous_scale='Viridis'
-    )
-    fig.update_layout(
-        yaxis={'categoryorder': 'total ascending'}
-    )
-    return fig
-\end{lstlisting}
-
-\subsection{混淆矩阵热力图}
-
-\textbf{设计思路：}
-\begin{itemize}
-    \item 使用$2\times 2$热力图展示TN、FP、FN、TP
-    \item 对角线（TN、TP）使用深色，非对角线使用浅色
-    \item 在每个单元格中显示具体数值
-    \item 使用Blues颜色方案，直观展示预测准确性
-\end{itemize}
-
-\begin{lstlisting}[language=Python]
-def plot_confusion_matrix(y_true, y_pred):
-    cm = confusion_matrix(y_true, y_pred)
-    fig = px.imshow(
-        cm, text_auto=True,
-        labels=dict(x="预测", y="真实", color="数量"),
-        x=['正常(0)', '欺诈(1)'],
-        y=['正常(0)', '欺诈(1)'],
-        title='混淆矩阵',
-        color_continuous_scale='Blues'
-    )
-    return fig
-\end{lstlisting}
-
-\subsection{欺诈vs正常分布对比图}
-
-\textbf{设计思路：}
-\begin{itemize}
-    \item 使用重叠直方图（overlay模式）
-    \item 正常地址用蓝色，欺诈地址用红色，直观对比
-    \item 透明度（opacity=0.7）确保重叠区域可见
-    \item 可选择任意数值特征进行对比
-\end{itemize}
-
-\begin{lstlisting}[language=Python]
-def plot_fraud_distribution(df, feature):
-    fig = px.histogram(
-        df, x=feature, color='FLAG',
-        title=f'{feature} 分布：欺诈 vs 正常',
-        barmode='overlay', opacity=0.7,
-        color_discrete_map={0: '#3498db', 1: '#e74c3c'}
-    )
-    return fig
-\end{lstlisting}
-
-% ============================================================
-\section{Streamlit页面实现}
-% ============================================================
-
-\subsection{页面布局}
-
-欺诈检测页面（\texttt{pages/fraud\_page.py}）采用以下布局：
-
-\begin{enumerate}
-    \item \textbf{标题区：} 页面标题 + 图标
-    \item \textbf{指标卡片区：} 4列布局展示Accuracy、Precision、Recall、F1
-    \item \textbf{特征重要性区：} Plotly交互式条形图
-    \item \textbf{混淆矩阵区：} Plotly热力图
-    \item \textbf{分布对比区：} （预留，可选添加）
-\end{enumerate}
-
-\subsection{关键代码}
-
-\begin{lstlisting}[language=Python, caption=欺诈检测Streamlit页面]
-import streamlit as st
-from visualization.fraud_charts import (
-    plot_feature_importance, 
-    plot_confusion_matrix, 
-    plot_fraud_distribution
-)
-
-def show_fraud_detection(detector, X_test, y_test):
-    st.header("🚨 欺诈检测")
-    
-    # 模型评估
-    st.subheader("模型性能")
-    metrics = detector.evaluate(X_test, y_test)
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("准确率", f"{metrics['accuracy']:.2%}")
-    col2.metric("精确率", f"{metrics['precision']:.2%}")
-    col3.metric("召回率", f"{metrics['recall']:.2%}")
-    col4.metric("F1分数", f"{metrics['f1']:.2%}")
-    
-    # 特征重要性
-    st.subheader("特征重要性")
-    importance_df = detector.get_feature_importance()
-    st.plotly_chart(
-        plot_feature_importance(importance_df), 
-        use_container_width=True
-    )
-    
-    # 混淆矩阵
-    st.subheader("混淆矩阵")
-    y_pred = detector.predict(X_test)
-    st.plotly_chart(
-        plot_confusion_matrix(y_test, y_pred), 
-        use_container_width=True
-    )
-\end{lstlisting}
-
-\subsection{与主应用的集成}
-
-在\texttt{app.py}中，欺诈检测页面的调用逻辑：
-
-\begin{lstlisting}[language=Python]
-elif page == "欺诈检测":
-    with st.spinner("正在训练欺诈检测模型..."):
-        detector = FraudDetector()
-        X_train, X_test, y_train, y_test = split_data(df)
-        detector.train(X_train, y_train)
-    show_fraud_detection(detector, X_test, y_test)
-\end{lstlisting}
-
-使用\texttt{st.spinner}提供加载反馈，提升用户体验。
-
-% ============================================================
-\section{实验结果与讨论}
-% ============================================================
-
-\subsection{核心发现}
-
-\begin{enumerate}
-    \item \textbf{模型性能优异：} 96.14\%的准确率在二分类任务中属于优秀水平，证明特征工程和模型选择的有效性。
-    
-    \item \textbf{特征重要性揭示模式：} 交易数量、时间间隔、ETH余额等基础特征占据主导地位，说明欺诈地址在交易行为上与正常地址有显著差异。
-    
-    \item \textbf{衍生特征有效：} \texttt{sent\_received\_ratio}、\texttt{avg\_transaction\_value}等衍生特征进入Top 10，证明领域知识驱动的特征工程是有价值的。
-    
-    \item \textbf{类别不平衡处理有效：} class\_weight='balanced'确保了模型不会偏向于多数类（正常地址），在保持高准确率的同时实现了高召回率。
-\end{enumerate}
 
 \subsection{局限性}
 
 \begin{enumerate}
-    \item \textbf{数据集局限：} 数据集为静态快照，不包含时序动态变化，无法检测"先正常后欺诈"的地址演化
-    \item \textbf{标签质量：} FLAG标签可能包含噪声，部分"正常"地址可能实际上是未标记的欺诈地址
-    \item \textbf{模型解释性有限：} 虽然提供了特征重要性，但具体的决策规则（如"交易数$>$X且余额$<$Y"）不够明确
-    \item \textbf{泛化能力未知：} 模型在新数据上的泛化能力需要进一步验证
+    \item \textbf{静态数据：} 数据集是快照，没有时间维度。没法看一个地址的行为是怎么变化的。
+    \item \textbf{标签噪声：} FLAG标签可能有误标。特别是那些"边缘案例"。
+    \item \textbf{召回率不够高：} 84.86\%在某些场景下不够。如果这是金融风控系统，漏掉15\%的欺诈可能损失很大。
+    \item \textbf{没有阈值调优：} 默认0.5阈值可能不是最优的。调整阈值可以在精确率和召回率之间做trade-off。
 \end{enumerate}
 
-\subsection{未来改进方向}
+\subsection{改进方向}
 
 \begin{enumerate}
-    \item \textbf{集成异常检测：} 与Part B的Isolation Forest结合，识别训练集中未标记的异常
-    \item \textbf{时序特征：} 加入交易时间序列模式，检测行为突变
-    \item \textbf{模型调优：} 尝试XGBoost、LightGBM等模型，进行超参数网格搜索
-    \item \textbf{阈值调优：} 根据业务需求（宁可错杀不可放过 vs 宁可放过不可错杀）调整分类阈值
+    \item \textbf{集成异常检测：} 和Part B结合，用Isolation Forest抓那些"伪装正常"的欺诈地址
+    \item \textbf{阈值调优：} 如果业务更重视召回率（宁可误杀不可放过），可以把阈值从0.5降到0.3
+    \item \textbf{时序特征：} 如果有时间序列数据，可以加入行为突变检测
+    \item \textbf{更多模型：} XGBoost、LightGBM值得一试
 \end{enumerate}
 
 % ============================================================
 \section{总结}
 % ============================================================
 
-本报告详细阐述了DSAA5022课程项目中Part A（数据预处理与欺诈检测模块）的完整实现。主要贡献包括：
+这个项目让我对区块链数据分析有了实际的认识。几个 takeaway：
 
 \begin{enumerate}
-    \item 设计了系统性的数据清洗流程，解决了列名不规范、文本列处理等实际问题
-    \item 基于领域知识设计了10个衍生特征，有效提升了模型性能
-    \item 采用Random Forest分类器，在真实数据集上达到96.14\%的准确率
-    \item 提供了完整的可视化设计和Streamlit页面实现
-    \item 通过统一接口规范，为团队协作和后续模块集成奠定了基础
+    \item \textbf{真实数据很脏：} 列名带空格、缺失值、文本列……这些都是实际项目里天天遇到的问题。
+    \item \textbf{EDA很重要：} 如果不是先看了数据分布，我可能会设计完全不同的特征。发现欺诈地址"不活跃"这个pattern直接决定了特征工程的方向。
+    \item \textbf{简单模型够用：} Random Forest没有复杂的调参，但效果已经很好。有时候"够用"比"最优"更重要。
+    \item \textbf{召回率是瓶颈：} 15\%的漏报率在实际应用中可能需要进一步优化。
 \end{enumerate}
 
-该模块作为整个系统的数据基础和分析核心，为Part B（异常检测）和Part C（聚类分析）提供了清洗后的数据和训练好的分类器，确保了项目的整体协调性和可扩展性。
+代码、数据和所有图表都已开源在GitHub仓库中， teammate可以直接复用数据接口和模型。
 
 \end{document}
