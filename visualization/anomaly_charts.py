@@ -6,7 +6,12 @@ import plotly.graph_objects as go
 
 
 def plot_anomaly_scatter(df: pd.DataFrame) -> go.Figure:
-    """Scatter plot of sample index vs anomaly score."""
+    """
+    异常检测散点图。
+
+    横轴是样本序号，纵轴是异常分数，颜色区分正常/异常。
+    这个版本不依赖 PCA，方便直接接文档里定义的 `anomaly_df`。
+    """
     required_columns = {"address", "anomaly_score", "is_anomaly"}
     if df is None or df.empty:
         return _empty_figure("异常检测散点图", "暂无异常检测结果。")
@@ -50,11 +55,12 @@ def plot_anomaly_scatter(df: pd.DataFrame) -> go.Figure:
 
 
 def plot_anomaly_score_distribution(scores: pd.Series) -> go.Figure:
-    """Histogram of anomaly scores."""
+    """异常分数分布直方图。"""
     score_series = pd.Series(scores).dropna()
     if score_series.empty:
         return _empty_figure("异常分数分布", "暂无异常分数可展示。")
 
+    # 使用样本量的平方根来估算柱子数量，避免箱数过多或过少。
     nbins = max(10, min(40, int(np.sqrt(len(score_series)))))
     fig = go.Figure(
         data=[
@@ -77,7 +83,7 @@ def plot_anomaly_score_distribution(scores: pd.Series) -> go.Figure:
 
 
 def plot_top_anomalies(top_df: pd.DataFrame) -> go.Figure:
-    """Horizontal bar chart of top suspicious addresses."""
+    """Top N 可疑地址条形图。"""
     required_columns = {"address", "anomaly_score"}
     if top_df is None or top_df.empty:
         return _empty_figure("Top 可疑地址", "暂无可疑地址。")
@@ -114,6 +120,7 @@ def plot_top_anomalies(top_df: pd.DataFrame) -> go.Figure:
 
 
 def _empty_figure(title: str, message: str) -> go.Figure:
+    """统一的空图占位，避免页面在无数据时直接报错。"""
     fig = go.Figure()
     fig.add_annotation(
         text=message,
@@ -129,6 +136,7 @@ def _empty_figure(title: str, message: str) -> go.Figure:
 
 
 def _shorten_address(address: str) -> str:
+    """在图表 y 轴上缩短地址显示，避免标签过长。"""
     address = str(address)
     if len(address) <= 18:
         return address

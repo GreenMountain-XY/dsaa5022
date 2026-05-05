@@ -9,6 +9,15 @@ from sklearn.exceptions import NotFittedError
 
 
 class AnomalyDetector:
+    """
+    基于 Isolation Forest 的异常检测器。
+
+    约定：
+    1. `fit()` 只接收正常地址的特征矩阵；
+    2. `predict()` 对全量地址打分；
+    3. `anomaly_score` 越大，表示地址越可疑。
+    """
+
     def __init__(self, contamination: float = 0.05):
         self.model = IsolationForest(contamination=contamination, random_state=42)
         self.scores: Optional[pd.Series] = None
@@ -18,7 +27,10 @@ class AnomalyDetector:
 
     def fit(self, X_normal: pd.DataFrame) -> None:
         """
-        Train the anomaly detector on normal addresses only.
+        在正常地址样本上训练异常检测模型。
+
+        参数：
+        - X_normal: 仅包含正常地址的特征矩阵，通常来自 `FLAG == 0` 的子集。
         """
         features = self._prepare_features(X_normal, fit=True)
         if features.empty:
@@ -31,8 +43,11 @@ class AnomalyDetector:
 
     def predict(self, X: pd.DataFrame, addresses: pd.Series) -> pd.DataFrame:
         """
-        Detect anomalies and return address-level scores and labels.
-        Returns: DataFrame(columns=['address', 'anomaly_score', 'is_anomaly'])
+        对输入地址进行异常检测，返回地址级别的打分结果。
+
+        返回：
+        - DataFrame(columns=['address', 'anomaly_score', 'is_anomaly'])
+        - `is_anomaly`: 1 表示异常，0 表示正常
         """
         if not self._is_fitted:
             raise NotFittedError("Call fit() before predict().")
@@ -42,6 +57,8 @@ class AnomalyDetector:
         if len(features) != len(address_series):
             raise ValueError("X and addresses must have the same number of rows.")
 
+        # sklearn 的 decision_function 越小越异常，这里取负号，
+        # 统一成“分数越大越可疑”，便于页面展示和排序。
         anomaly_scores = -self.model.decision_function(features)
         raw_predictions = self.model.predict(features)
         is_anomaly = (raw_predictions == -1).astype(int)
@@ -60,8 +77,10 @@ class AnomalyDetector:
 
     def get_top_anomalies(self, n: int = 20) -> pd.DataFrame:
         """
-        Return the n most suspicious addresses ranked by anomaly score.
-        Returns: DataFrame(columns=['address', 'anomaly_score'])
+        返回异常分数最高的前 n 个可疑地址。
+
+        返回：
+        - DataFrame(columns=['address', 'anomaly_score'])
         """
         if self.last_predictions is None:
             raise ValueError("Call predict() before get_top_anomalies().")
@@ -76,6 +95,12 @@ class AnomalyDetector:
         return top_df
 
     def _prepare_features(self, X: pd.DataFrame, fit: bool) -> pd.DataFrame:
+        """
+        清洗并对齐模型输入特征。
+
+        训练时记录列顺序；预测时严格按训练列顺序取列，避免
+        因为列缺失或顺序变化导致模型输入不一致。
+        """
         if not isinstance(X, pd.DataFrame):
             raise TypeError("X must be a pandas DataFrame.")
 

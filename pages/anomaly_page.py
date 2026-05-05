@@ -20,8 +20,11 @@ from visualization.anomaly_charts import (
 
 def show_anomaly_detection(detector: AnomalyDetector, anomaly_df: pd.DataFrame):
     """
-    异常检测页
-    展示：异常散点图、可疑地址列表
+    Streamlit 异常检测页。
+
+    输入：
+    - detector: 已完成 fit/predict 的异常检测器
+    - anomaly_df: `predict()` 返回的结果表
     """
     st.title("异常检测")
     st.caption("基于 Isolation Forest 的无监督异常检测，异常分数越高越可疑。")
@@ -37,6 +40,7 @@ def show_anomaly_detection(detector: AnomalyDetector, anomaly_df: pd.DataFrame):
         return
 
     result_df = anomaly_df.reset_index(drop=True).copy()
+    # 页面顶部先给出最核心的 4 个指标，方便演示时快速讲清结果。
     total_count = len(result_df)
     anomaly_count = int(result_df["is_anomaly"].sum())
     anomaly_ratio = anomaly_count / total_count if total_count else 0.0
@@ -53,6 +57,8 @@ def show_anomaly_detection(detector: AnomalyDetector, anomaly_df: pd.DataFrame):
 
     st.plotly_chart(plot_anomaly_scatter(result_df), width="stretch")
 
+    # 正常情况下优先使用 detector 内保存的完整分数；
+    # 如果没有，则退回当前结果表中的 anomaly_score。
     score_series = (
         detector.scores
         if detector.scores is not None
@@ -72,6 +78,12 @@ def show_anomaly_detection(detector: AnomalyDetector, anomaly_df: pd.DataFrame):
 def _resolve_top_anomalies(
     detector: AnomalyDetector, anomaly_df: pd.DataFrame, n: int
 ) -> pd.DataFrame:
+    """
+    统一获取 Top 异常地址。
+
+    优先调用 detector 内部缓存的预测结果；如果缓存缺失，
+    就直接从传入的 anomaly_df 里兜底计算。
+    """
     try:
         return detector.get_top_anomalies(n=n)
     except ValueError:
@@ -84,6 +96,7 @@ def _resolve_top_anomalies(
 
 
 if __name__ == "__main__":
+    # 这段演示数据用于单独运行页面文件时快速预览布局。
     demo_df = pd.DataFrame(
         {
             "address": [
